@@ -8,36 +8,40 @@ NoNamesError = Class.new(StandardError)
 InvalidNumberError = Class.new(StandardError)
 
 class CalculateAvailability
-    attr_reader :all_users, :all_events, :search_names, :work_start, :work_end
+    attr_reader :all_users, :search_names, :work_start, :work_end
 
     def initialize(search_names, work_start, work_end)
         @all_users = parse_users
-        @all_events = parse_events
         @search_names = search_names
         @work_start = work_start
         @work_end = work_end
+        parse_events
     end
 
     def perform
         puts "Availability"
         puts "-----------------------"
 
+        search_users = all_users.values.select { |user| search_names.include?(user.name) }
         days = [Time.utc(2021, 07, 05), Time.utc(2021, 07, 06), Time.utc(2021, 07, 07)]
         current_range = nil
+
         days.each do |day|
             day_start = Time.utc(day.year, day.month, day.day, work_start.hour)
             day_end = Time.utc(day.year, day.month, day.day, work_end.hour)
             working_times = [day_start]
+            # Because work_hours are dynamic we have a variable amount of times we'll need to check
             while working_times[-1] < day_end
                 new_time = working_times[-1] + (15 * 60)
                 working_times.push(new_time)
             end
 
             working_times.each_with_index do |start_time, index|
+                # prevent setting a time_block with the end time
                 break if start_time == working_times[-1]
 
                 time_block = (start_time..working_times[index + 1])
-                if time_available?(time_block)
+                if time_available?(search_users, time_block)
                     if current_range.nil?
                         current_range = time_block
                         next
@@ -53,7 +57,7 @@ class CalculateAvailability
                 end
             end
 
-            print_time(current_range)
+            print_time(current_range) # ensure the last current_range is printed
             current_range = nil
             puts "\n"
         end
@@ -79,12 +83,11 @@ class CalculateAvailability
             end_time = DateTime.parse(event["end_time"]).to_time
             event_struct = Event.new(event["user_id"], start_time, end_time)
             user = all_users[event["user_id"]]
-            user.events.push(event_struct) # in prod I would do an upsert to prevent duplications
+            user.events.push(event_struct)
         end
     end
 
-    def time_available?(time_block)
-        search_users = all_users.values.select { |user| search_names.include?(user.name) }
+    def time_available?(search_users, time_block)
         available_users = []
 
         search_users.each do |user|
